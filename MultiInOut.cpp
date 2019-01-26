@@ -54,6 +54,15 @@ public:
         /*
             3. Memory allocation.
         */
+        // // We need to iterate over all of out input/output channels in the
+        // // calculation function, so create an array to hold the pointers to the
+        // // input and output buffers for each channel of input and output.
+        // mIns = nullptr;   // initialize to nullptr in case we error out before assigning these in RTAlloc
+        // mOuts = nullptr;
+        // // see SETUP_IN (RecordBuf_next)
+        // mIns = (const float**)RTAlloc(mWorld, mNumInputChans * sizeof(float*));
+        // mOuts = (float**)RTAlloc(mWorld, mNumOutputChans * sizeof(float*));
+
         // The input is modulated by a sinusoidal amplitude function.
         // The phase of each channel's modulator is offset to create an
         // amplitude "sweep" effect. Store these phase offsets for each channel.
@@ -64,7 +73,9 @@ public:
         // If you don't do this check properly then YOU CAN CRASH THE SERVER!
         // A lot of ugens in core and sc3-plugins fail to do this. Don't follow their example.
         if (mPhaseOffsets == nullptr) {
+        // if (mIns == nullptr || mOuts == nullptr || mPhaseOffsets == nullptr) {
             // calc function should now simply clear the outputs
+            // mCalcFunc = ft->fClearUnitOutputs; // SETCALC
             mCalcFunc = *ClearUnitOutputs; // SETCALC
             ClearUnitOutputs(this, 1);
 
@@ -107,7 +118,9 @@ public:
         Destructor: free memory allocated in the the UGen's constructor
     */
     ~MultiInOut() {
-        // make sure variables aren't nullptr before freeing
+        // make sure these variables aren't nullptr before freeing
+        // if (mIns) RTFree(mWorld, mIns);
+        // if (mOuts) RTFree(mWorld, mOuts);
         if (mPhaseOffsets) RTFree(mWorld, mPhaseOffsets);
     }
 
@@ -117,6 +130,8 @@ private:
         one block to the next.
     */
     int mNumInputChans, mNumOutputChans;
+    // const float **mIns;
+    // float **mOuts;
     float *mPhaseOffsets;
     double mPhase, mPhaseInc;
     float mModMul, mModAdd;
@@ -142,6 +157,7 @@ private:
         // to input/output buffer channels, respectively. Copy them here.
         float **outBufs = mOutBuf;    // pointer to array of output buffer pointers
         float **inBufs = mInBuf;      // TODO: why doesn't assigning member var directly not work? Needs to be assigned below
+        // float **inBufs = mIns; // << looks like it's not necessary to allocate this ?
         /*
             Store pointers to each input/output buffer channel pointers.
             TODO: is this necessary, or just access mInBuf/mOutBuf directly?
@@ -149,6 +165,8 @@ private:
         for (int i = 0; i < numInputs; i++) {
             outBufs[i] = mOutBuf[i];
             inBufs[i] = mInBuf[i + inOffset];
+            // outBufs[i] = out(i);
+            // inBufs[i] = in(i + inOffset); // TODO: can't use member functions because of const, build alternative into SCUnit?
         }
 
         /*
