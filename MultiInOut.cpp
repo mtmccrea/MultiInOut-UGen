@@ -2,8 +2,8 @@
     The MultiInOut UGen exemplifies reading a variable number of input channels
     and generating multiple channels of output.
     In order to focus on this topic, input and output rates are limited to
-    audio rate, and parameters (modFreq and modDepth) are not modulatable,
-    i.e. "scalar rate" or "initialization rate", for brevity and simplicity.
+    audio-rate, and parameters (modFreq and modDepth) are not modulatable,
+    i.e. "scalar-rate" or "initialization-rate", for brevity and simplicity.
     A fully-featured UGen would support audio- and control-rate output, as well
     as modulatable input parameters (at various rates).
 */
@@ -47,22 +47,14 @@ public:
         mModMul = in0(1) * 0.5;   // 'modDepth' is the second input
         mModAdd = 1.0 - mModMul;  // normalize peak to 1
 
-        // number of audio input channels to process, exclude modFreq, modDepth
-        mNumInputChans = numInputs() - 2;
-        mNumOutputChans = mNumInputChans; // in this example, number of outputs == number of inputs
+        // Store the number of audio input/output channels to process.
+        // In this example, the number of output channels is equal to the
+        // size of the 'inputArray' argument.
+        mNumOutputChans = numInputs() - 2;  // - 2: exclude modFreq, modDepth
 
         /*
             3. Memory allocation.
         */
-        // // We need to iterate over all of out input/output channels in the
-        // // calculation function, so create an array to hold the pointers to the
-        // // input and output buffers for each channel of input and output.
-        // mIns = nullptr;   // initialize to nullptr in case we error out before assigning these in RTAlloc
-        // mOuts = nullptr;
-        // // see SETUP_IN (RecordBuf_next)
-        // mIns = (const float**)RTAlloc(mWorld, mNumInputChans * sizeof(float*));
-        // mOuts = (float**)RTAlloc(mWorld, mNumOutputChans * sizeof(float*));
-
         // The input is modulated by a sinusoidal amplitude function.
         // The phase of each channel's modulator is offset to create an
         // amplitude "sweep" effect. Store these phase offsets for each channel.
@@ -79,7 +71,7 @@ public:
             mCalcFunc = *ClearUnitOutputs; // SETCALC
             ClearUnitOutputs(this, 1);
 
-            if(mWorld->mVerbosity > -2) {
+            if (mWorld->mVerbosity > -2) {
                 Print("Failed to allocate memory for MultiInOut UGen.\n");
             }
 
@@ -118,9 +110,7 @@ public:
         Destructor: free memory allocated in the the UGen's constructor
     */
     ~MultiInOut() {
-        // make sure these variables aren't nullptr before freeing
-        // if (mIns) RTFree(mWorld, mIns);
-        // if (mOuts) RTFree(mWorld, mOuts);
+        // make sure variables aren't nullptr before freeing
         if (mPhaseOffsets) RTFree(mWorld, mPhaseOffsets);
     }
 
@@ -149,57 +139,49 @@ private:
         double phaseInc = mPhaseInc;
         double phase = mPhase;
         float *phaseOffsets = mPhaseOffsets;
-        int numInputs = mNumInputChans;
         int numOutputs = mNumOutputChans;
-        const int inOffset = 2;       // offset into input buffer array to skip: modFreq an modDepth
 
-        // Unit struct has members: float **mInBuf, **mOutBuf, storing pointers
-        // to input/output buffer channels, respectively. Copy them here.
-        float **outBufs = mOutBuf;    // pointer to array of output buffer pointers
-        float **inBufs = mInBuf;      // TODO: why doesn't assigning member var directly not work? Needs to be assigned below
-        // float **inBufs = mIns; // << looks like it's not necessary to allocate this ?
-        /*
-            Store pointers to each input/output buffer channel pointers.
-            TODO: is this necessary, or just access mInBuf/mOutBuf directly?
-        */
-        for (int i = 0; i < numInputs; i++) {
-            outBufs[i] = mOutBuf[i];
-            inBufs[i] = mInBuf[i + inOffset];
-            // outBufs[i] = out(i);
-            // inBufs[i] = in(i + inOffset); // TODO: can't use member functions because of const, build alternative into SCUnit?
-        }
+        // The Unit struct has members: float **mInBuf, **mOutBuf, which are
+        // pointers to the location (head) of each input and output channel,
+        // respectively. This allows you to access the samples of the inputs,
+        // for example, in the format: mInBuf[channel][frame].
+        // Here, we offset the input pointer directly to the 'inputArray' input
+        // (skipping the other 2 arg inputs) so we can use zero-based indexing
+        // in the sample loop below, matching the output channels indices.
+        // Pointer arithmetic works here to perform that offset.
+        float **inBuf = mInBuf + 2;   // + 2: skip modFreq an modDepth inputs
+        float **outBuf = mOutBuf;     // pointer to buffer pointers
 
         /*
-            Perform a loop over the number of samples in the control block.
-            If this UGen is audio-rate, then inNumSamples will be 64 (the default,
-            unless the user has set a different block size). If this unit is
-            control-rate, then inNumSamples will be 1.
+            Perform a loop over the control block's frames.
+            If this UGen is audio-rate, then inNumSamples will be 64 (the
+            default, unless the user has set a different block size). If this
+            unit is control-rate, then inNumSamples will be 1.
         */
-        for (int frm = 0; frm < inNumSamples; frm++)  // iterate over each frame in this block
-        {
-            for (int chan = 0; chan < numInputs; chan++) {  // iterate over each channel in this frame
+        for (int frm = 0; frm < inNumSamples; frm++) {  // iterate over each frame in this block
+
+            for (int chan = 0; chan < numOutputs; chan++) {  // iterate over each channel in this frame
                 // calculate the phase for each modulator
                 double thisPhase = phase + phaseOffsets[chan];
 
-                // generate modulation from a sine function
-                // (inefficient! used here for brevity)
+                // generate modulation from a sine function (not very efficient)
                 float mod = sin(thisPhase) * modMul + modAdd;
 
                 // output = input * modulation
-                outBufs[chan][frm] = inBufs[chan][frm] * mod;
+                outBuf[chan][frm] = inBuf[chan][frm] * mod;
             }
             phase += phaseInc;
         }
 
         /*
             Store local variable states back to the the struct's member
-            variables to carry over to the next block
+            variables to carry over to the next block.
         */
         mPhase = (double)sc_wrap(phase, 0.0, twopi);
     }
 };
 
-// the entry point is called by the host when the plug-in is loaded
+// The entry point is called by the host when the plug-in is loaded.
 PluginLoad(MultiInOut)
 {
     // InterfaceTable *inTable implicitly given as argument to the load function
