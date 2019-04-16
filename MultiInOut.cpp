@@ -110,8 +110,8 @@ public:
         Destructor: free memory allocated in the the UGen's constructor
     */
     ~MultiInOut() {
-        // make sure variables aren't nullptr before freeing
-        if (mPhaseOffsets) RTFree(mWorld, mPhaseOffsets);
+        // free memory resources
+        RTFree(mWorld, mPhaseOffsets);
     }
 
 private:
